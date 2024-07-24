@@ -1,0 +1,119 @@
+import discord
+from discord.ext import commands, tasks
+import requests
+import datetime
+
+intents = discord.Intents.default()
+bot = commands.Bot(command_prefix='!', intents=intents)
+
+WEATHER_API_KEY = 'witheld'  # your api key
+WEATHER_URL = 'http://api.weatherapi.com/v1/current.json'
+FORECAST_URL = 'http://api.weatherapi.com/v1/forecast.json'
+
+@bot.event
+async def on_ready():
+    print(f'Logged in as {bot.user} ☀️')
+    daily_weather.start()
+
+@bot.command(name='weather')
+async def weather(ctx, *, location: str):
+    response = get_weather_data(location)
+    if response:
+        await ctx.send(response)
+    else:
+        await ctx.send('Location not found ❌')
+
+@bot.command(name='forecast')
+async def forecast(ctx, location: str, days: int):
+    response = get_forecast_data(location, days)
+    if response:
+        await ctx.send(response)
+    else:
+        await ctx.send('Location not found ❌')
+
+@tasks.loop(hours=24)
+async def daily_weather():
+    await bot.wait_until_ready()
+    for guild in bot.guilds:
+        for channel in guild.text_channels:
+            if channel.name == 'weather-updates':
+                location = 'New York'  # Default location for daily updates
+                response = get_weather_data(location)
+                if response:
+                    await channel.send(response)
+
+def get_weather_data(location):
+    params = {'key': WEATHER_API_KEY, 'q': location}
+    response = requests.get(WEATHER_URL, params=params).json()
+    if 'error' in response:
+        return None
+    location_name = response['location']['name']
+    temp_c = response['current']['temp_c']
+    condition = response['current']['condition']['text']
+    humidity = response['current']['humidity']
+    wind_kph = response['current']['wind_kph']
+    feelslike_c = response['current']['feelslike_c']
+    return (f'Weather in {location_name}: {temp_c}°C, {condition} 🌤️\n'
+            f'Humidity: {humidity}% 💧\n'
+            f'Wind Speed: {wind_kph} kph 🌬️\n'
+            f'Feels Like: {feelslike_c}°C 🌡️')
+
+def get_forecast_data(location, days):
+    params = {'key': WEATHER_API_KEY, 'q': location, 'days': days}
+    response = requests.get(FORECAST_URL, params=params).json()
+    if 'error' in response:
+        return None
+    forecast_list = response['forecast']['forecastday']
+    forecast_message = f'Weather forecast for {location}:\n'
+    for day in forecast_list:
+        date = day['date']
+        max_temp = day['day']['maxtemp_c']
+        min_temp = day['day']['mintemp_c']
+        condition = day['day']['condition']['text']
+        humidity = day['day']['avghumidity']
+        wind_kph = day['day']['maxwind_kph']
+        forecast_message += (f'{date}: {max_temp}°C / {min_temp}°C, {condition} 🌦️\n'
+                             f'Avg Humidity: {humidity}% 💧\n'
+                             f'Max Wind Speed: {wind_kph} kph 🌬️\n\n')
+    return forecast_message
+
+@bot.command(name='setdefaultlocation')
+@commands.has_permissions(administrator=True)
+async def setdefaultlocation(ctx, *, location: str):
+    with open('default_location.txt', 'w') as f:
+        f.write(location)
+    await ctx.send(f'Default location set to {location} 📍')
+
+@bot.command(name='getdefaultlocation')
+async def getdefaultlocation(ctx):
+    with open('default_location.txt', 'r') as f:
+        location = f.read()
+    await ctx.send(f'Default location is {location} 📍')
+
+@bot.command(name='setdailychannel')
+@commands.has_permissions(administrator=True)
+async def setdailychannel(ctx, *, channel_name: str):
+    with open('daily_channel.txt', 'w') as f:
+        f.write(channel_name)
+    await ctx.send(f'Daily weather updates channel set to {channel_name} 📩')
+
+@bot.command(name='getdailychannel')
+async def getdailychannel(ctx):
+    with open('daily_channel.txt', 'r') as f:
+        channel_name = f.read()
+    await ctx.send(f'Daily weather updates channel is {channel_name} 📩')
+
+@bot.command(name='helpweather')
+async def helpweather(ctx):
+    help_message = """
+    **Weather Bot Commands** 📜
+    `!weather <location>` - Get current weather for a location
+    `!forecast <location> <days>` - Get weather forecast for a location and number of days
+    `!setdefaultlocation <location>` - Set default location for daily updates (Admin only)
+    `!getdefaultlocation` - Get default location for daily updates
+    `!setdailychannel <channel_name>` - Set the channel for daily weather updates (Admin only)
+    `!getdailychannel` - Get the channel for daily weather updates
+    """
+    await ctx.send(help_message)
+
+bot.run('witheld')  # your api key
